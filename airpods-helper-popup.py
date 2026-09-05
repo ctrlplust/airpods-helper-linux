@@ -61,6 +61,7 @@ class Popup:
         self.lbl_title = None
         self.lbl_sub = None
         self.cols = None
+        self.dbus_connect()
 
     # ---------------------------------------------------------------- dbus
     def dbus_connect(self):
@@ -188,29 +189,48 @@ class Popup:
 
         win.connect("notify::width", lambda *a: self.reposition())
         win.connect("notify::height", lambda *a: self.reposition())
+        win.connect("destroy", lambda *a: self.on_win_destroy())
         self.win = win
+
+    def on_win_destroy(self):
+        self.win = None
+        self.revealer = None
+        self.cols = None
+        self.lbl_title = None
+        self.lbl_sub = None
+
+    def ensure_window(self):
+        if self.win is None:
+            self.build_window(self.app)
+        return self.win is not None
 
     def reposition(self):
         if not self.win:
             return
-        display = self.win.get_display()
-        monitor = None
-        surface = self.win.get_surface()
-        if surface:
-            monitor = display.get_monitor_at_surface(surface)
-        if not monitor:
-            monitors = list(display.get_monitors())
-            monitor = monitors[0] if monitors else None
-        if not monitor:
-            return
-        geo = monitor.get_geometry()
-        w = self.win.get_width()
-        h = self.win.get_height()
-        if w <= 0 or h <= 0:
-            return
-        x = geo.x + (geo.width - w) // 2
-        y = geo.y + int(geo.height * 0.16)
-        self.win.move(x, y)
+        try:
+            display = self.win.get_display()
+            monitor = None
+            surface = self.win.get_surface()
+            if surface:
+                monitor = display.get_monitor_at_surface(surface)
+            if not monitor:
+                monitors = list(display.get_monitors())
+                monitor = monitors[0] if monitors else None
+            if not monitor:
+                return
+            geo = monitor.get_geometry()
+            w = self.win.get_width()
+            h = self.win.get_height()
+            if w <= 0 or h <= 0:
+                return
+            surface = self.win.get_surface()
+            if surface:
+                x = geo.x + (geo.width - w) // 2
+                y = geo.y + int(geo.height * 0.16)
+                surface.move(x, y)
+        except Exception:
+            if os.environ.get("APD_TRACE"):
+                print("[airpods-popup] reposition skip (posiciona el compositor)", file=sys.stderr)
 
     def refresh_card(self):
         if not self.win:
@@ -291,18 +311,23 @@ class Popup:
                 GLib.source_remove(self.hide_timer)
             except Exception:
                 pass
+            self.hide_timer = None
 
     def show_pop(self):
-        if not self.revealer:
+        if not self.ensure_window():
             return
         self.clear_hide_timer()
         self.refresh_card()
 
         def do_show():
-            self.revealer.set_reveal_child(True)
-            self.win.present()
-            self.reposition()
-            self.last_snap = self.snapshot()
+            if not self.win:
+                return False
+            try:
+                self.revealer.set_reveal_child(True)
+                self.win.present()
+                self.reposition()
+            except Exception as e:
+                print(f"[airpods-popup] show error: {e}", file=sys.stderr)
             self.hide_timer = GLib.timeout_add_seconds(7, self.hide_pop)
             if os.environ.get("APD_TRACE"):
                 print("[popup] show", flush=True)
@@ -311,7 +336,7 @@ class Popup:
         GLib.idle_add(do_show)
 
     def hide_pop(self):
-        self.clear_hide_timer()
+        self.hide_timer = None
         if self.revealer:
             self.revealer.set_reveal_child(False)
             if os.environ.get("APD_TRACE"):
@@ -320,14 +345,9 @@ class Popup:
 
     # ------------------------------------------------------------------ app
     def on_activate(self, app):
-        if self.win is None:
-            self.dbus_connect()
-            self.build_window(app)
+        self.ensure_window()
         self.refresh_card()
-        if self.state.get("Connected") or "--force" in sys.argv:
-            self.show_pop()
-        else:
-            self.show_pop()
+        self.show_pop()
         try:
             app.hold()
         except Exception:
