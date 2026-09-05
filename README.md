@@ -4,7 +4,11 @@ Popup estilo Apple + módulo Waybar para ver la batería de AirPods en Linux
 (Hyprland/Wayland), usando el daemon [airpods-helper](https://github.com/superninjv/airpods-helper)
 por delante.
 
-![Popup](docs/popup.png)
+<div align="center">
+
+![Popup](./docs/popup.png)
+
+</div>
 
 El daemon expone el estado por D-Bus (`org.costa.AirPods`) y estos scripts lo
 muestran:
